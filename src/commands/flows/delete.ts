@@ -1,39 +1,25 @@
-import fs from 'node:fs';
-import { join } from 'node:path';
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Connection, Messages } from '@salesforce/core';
+import { Flow, FlowInterview, AggregateResult } from '../../types.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('sfdx-delete-flow-versions', 'flows.delete');
 
-const folder = join(__dirname, '..', 'data');
-
-async function mkdir(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    fs.mkdir(folder, { recursive: true }, (error) => {
-      if (error) {
-        reject(error);
-      }
-      resolve();
-    });
-  });
-}
-
-async function writeJson(filename: string, data: object): Promise<object> {
-  const filepath = join(folder, filename);
-
-  return new Promise((resolve, reject) => {
-    fs.writeFile(filepath, JSON.stringify(data, null, 2), (err) => {
-      if (err) reject(err);
-
-      resolve(data);
-    });
-  });
-}
-
 export type FlowsDeleteResult = {
   path: string;
 };
+
+class FlowsDeleteResultImpl implements FlowsDeleteResult {
+  public readonly path = 'src/commands/flows/delete.ts';
+
+  public constructor(
+    public readonly flowCountsByStatus: AggregateResult[],
+    public readonly atRiskFlows: string[],
+    public readonly inactiveFlows?: Flow[],
+    public readonly interviews?: FlowInterview[],
+    public readonly deleted: boolean = false
+  ) {}
+}
 
 export default class FlowsDelete extends SfCommand<FlowsDeleteResult> {
   public static readonly summary = messages.getMessage('summary');
@@ -47,6 +33,7 @@ export default class FlowsDelete extends SfCommand<FlowsDeleteResult> {
       char: 'c',
       required: false,
     }),
+    // TODO: Determine if this functionality has value.
     /*
     'include-managed': Flags.boolean({
       summary: messages.getMessage('flags.include-managed.summary'),
@@ -59,39 +46,28 @@ export default class FlowsDelete extends SfCommand<FlowsDeleteResult> {
     'api-version': Flags.orgApiVersion(),
   };
 
-  public async init(): Promise<void> {
-    await super.init();
-    return mkdir();
-  }
-
   public async run(): Promise<FlowsDeleteResult> {
-    const path = 'src/commands/flows/delete.ts';
-
     const { flags } = await this.parse(FlowsDelete);
     const org = flags['target-org'].getConnection(flags['api-version']);
 
     const flowCountsByStatus = await this.queryFlowsByNameAndStatus(org);
     const atRiskFlows = this.findAtRiskFlows(flowCountsByStatus);
-    await writeJson('flows-by-status.json', flowCountsByStatus);
-    await writeJson('at-risk-flows.json', atRiskFlows);
 
     const inactiveFlows = await this.queryInactiveFlows(org);
     this.info(`inactiveFlows count: ${inactiveFlows.length}`);
     if (inactiveFlows.length === 0) {
       this.info('✅ no inactive flows found');
-      return { path };
+      return new FlowsDeleteResultImpl(flowCountsByStatus, atRiskFlows);
     }
-    await writeJson('inactive-flows.json', inactiveFlows);
 
     const flowViewIds = inactiveFlows.map((f) => f.Id.slice(0, 15));
     const interviews = await this.queryInterviewsByFlowVersion(org);
-    await writeJson('flow-interviews.json', interviews);
     const interviewIds = interviews.map((i) => i.Id);
     this.info(`found ${interviews.length} FlowInterviews for ${inactiveFlows.length} FlowVersions`);
 
     if (flags.checkonly) {
       this.info('✅ check only complete');
-      return { path };
+      return new FlowsDeleteResultImpl(flowCountsByStatus, atRiskFlows, inactiveFlows, interviews);
     }
 
     this.info('⛔️ WARNING begin destructive changes');
@@ -99,7 +75,7 @@ export default class FlowsDelete extends SfCommand<FlowsDeleteResult> {
     await this.deleteAllObsoleteFlows(org, flowViewIds);
 
     this.info('✅ all done');
-    return { path };
+    return new FlowsDeleteResultImpl(flowCountsByStatus, atRiskFlows, inactiveFlows, interviews, true);
   }
 
   private async queryFlowsByNameAndStatus(org: Connection, includeManaged?: boolean): Promise<AggregateResult[]> {
@@ -162,13 +138,14 @@ export default class FlowsDelete extends SfCommand<FlowsDeleteResult> {
       .split('\n')
       .map((line) => line.trim())
       .join(' ');
-    // const cmd = `npx sf data query -o ${username} -q "${query}" --use-tooling-api -r json -w 10`;
 
+    // TODO: Do we need to use the Tooling API?
     const results = await org.query<Flow>(query);
     this.debug(results);
     return results.records;
   }
 
+  // TODO: Remove comment if Flow ID filter is not valuable.
   // private async queryInterviewsByFlowVersion(org: Connection, flowVersionIds: string[]): Promise<FlowInterview[]> {
   private async queryInterviewsByFlowVersion(org: Connection): Promise<FlowInterview[]> {
     // const versionIds = flowVersionIds.join('\',\'');

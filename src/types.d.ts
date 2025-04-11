@@ -1,10 +1,10 @@
-declare type AggregateResult = {
+export type AggregateResult = {
   DeveloperName: string;
   Status: string;
   expr0: number; // count
 };
 
-declare type Flow = {
+export type Flow = {
   Id: string;
   Definition: {
     DeveloperName: string;
@@ -13,7 +13,7 @@ declare type Flow = {
   Status: string;
 };
 
-declare type FlowInterview = {
+export type FlowInterview = {
   Id: string;
   FlowVersionViewId: string;
 };
