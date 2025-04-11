@@ -45,6 +45,9 @@
     "topics": {
       "hello": {
         "description": "Commands to say hello."
+      },
+      "flows": {
+        "description": "description for flows"
       }
     },
     "flexibleTaxonomy": true
